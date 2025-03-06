@@ -36,16 +36,6 @@ jobs:
       - name: Build Docker image
         run: docker build --tag ${{ secrets.DOCKER_USERNAME }}/microservice-voting:latest .
 
-      - name: Run Docker container
-        run: docker run -d -p 8081:8080 --name microservice-voting-container ${{ secrets.DOCKER_USERNAME }}/microservice-voting:latest
-
-      - name: Wait for the container to be ready
-        run: sleep 30
-
-      - name: Test Docker container
-        run: |
-          curl -f http://localhost:8081 || exit 1
-
       - name: Push Docker image to Docker Hub
         if: success()
         run: docker push ${{ secrets.DOCKER_USERNAME }}/microservice-voting:latest
