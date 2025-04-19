@@ -1,17 +1,17 @@
 # Stage 1: Build the Spring Boot application
-FROM maven:3-eclipse-temurin-19-alpine as build
+FROM maven:3.9.4-eclipse-temurin-17 as build
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy the project's POM file for dependency resolution
+# Copy the project's POM file and source code
 COPY . .
 
 # Build the application using Maven
 RUN mvn package
 
 # Stage 2: Create a smaller image for production
-FROM openjdk:19-jdk-alpine3.16
+FROM openjdk:17-jdk-slim
 
 # Set the working directory inside the container
 WORKDIR /app
