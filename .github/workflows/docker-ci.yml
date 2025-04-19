@@ -39,7 +39,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v1
 
       - name: Build Docker image
-        run: docker build --tag 194722430197.dkr.ecr.us-west-2.amazonaws.com/training/training/craftista_voting:latest .
+        run: docker build --tag 194722430197.dkr.ecr.us-west-2.amazonaws.com/training/craftista_voting:latest .
 
       - name: Push Docker image to Amazon ECR
         if: success()
