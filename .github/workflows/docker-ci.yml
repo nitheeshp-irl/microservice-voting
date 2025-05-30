@@ -1,49 +1,106 @@
-name: Docker CI for microservice-voting
+name: Build and Push to Docker Hub
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  DOCKER_HUB_USERNAME: nitheesh86
+  DOCKER_HUB_REPOSITORY: nitheesh86/microservice-voting
 
 jobs:
-  build-and-test:
+  build-and-push:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Determine Bump Type from Commit Message
+        id: bump_type
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $COMMIT_MSG"
+
+          if echo "$COMMIT_MSG" | grep -qE "BREAKING CHANGE|!:"; then
+            echo "BUMP=major" >> $GITHUB_ENV
+          elif echo "$COMMIT_MSG" | grep -iq "^feat:"; then
+            echo "BUMP=minor" >> $GITHUB_ENV
+          elif echo "$COMMIT_MSG" | grep -iq "^fix:"; then
+            echo "BUMP=patch" >> $GITHUB_ENV
+          else
+            echo "No matching pattern, defaulting to patch."
+            echo "BUMP=patch" >> $GITHUB_ENV
+          fi
+
+      - name: Determine Next Semantic Version
+        id: get_version
+        run: |
+          TAGS=$(curl -s "https://hub.docker.com/v2/repositories/$DOCKER_HUB_USERNAME/$DOCKER_HUB_REPOSITORY/tags/?page_size=100" | \
+                jq -r '.results[].name' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true)
+
+          if [[ -z "$TAGS" ]]; then
+            NEXT_VERSION="1.0.0"
+          else
+            LAST_VERSION=$(echo "$TAGS" | sort -V | tail -n 1)
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LAST_VERSION"
+
+            case "$BUMP" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              patch)
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+
+            NEXT_VERSION="$MAJOR.$MINOR.$PATCH"
+          fi
+
+          echo "NEXT_VERSION=$NEXT_VERSION" >> $GITHUB_ENV
+          echo "Next version: $NEXT_VERSION"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
-      - name: Cache Docker layers
-        uses: actions/cache@v3
+      - name: Build and Push Docker Image
+        uses: docker/build-push-action@v5
         with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+          context: .
+          push: true
+          tags: |
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_HUB_REPOSITORY }}:${{ env.NEXT_VERSION }}
+            ${{ env.DOCKER_HUB_USERNAME }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
+      - name: Tag Git Repo with Version (if not exists)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
 
-      - name: Log in to Amazon ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@v1
-
-      - name: Build Docker image
-        run: docker build --tag 194722430197.dkr.ecr.us-west-2.amazonaws.com/training/craftista_voting:latest .
-
-      - name: Push Docker image to Amazon ECR
-        if: success()
-        run: docker push 194722430197.dkr.ecr.us-west-2.amazonaws.com/training/craftista_voting:latest
-
-      - name: Clean up
-        run: docker rm -f microservice-voting-container
+          if git ls-remote --tags origin | grep -q "refs/tags/v$NEXT_VERSION$"; then
+            echo "Tag v$NEXT_VERSION already exists. Skipping tag push."
+          else
+            git tag -a "v$NEXT_VERSION" -m "Release v$NEXT_VERSION"
+            git push origin "v$NEXT_VERSION"
+          fi
