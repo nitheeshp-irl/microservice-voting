@@ -12,7 +12,7 @@ permissions:
 
 env:
   DOCKER_HUB_USERNAME: nitheesh86
-  DOCKER_HUB_REPOSITORY: nitheesh86/microservice-voting
+  DOCKER_HUB_REPOSITORY: microservice-voting
 
 jobs:
   build-and-push:
